@@ -8,6 +8,67 @@
 
 import UIKit
 import AVFoundation
+import GPUImage
+
+class GPUImageViewController: UIViewController {
+    lazy var backImageView: UIImageView = {
+        let v = UIImageView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.image = UIImage(named: "city")
+        return v
+    }()
+
+    lazy var iv: GPUImageView = {
+        let v = GPUImageView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.backgroundColor = .clear
+        return v
+    }()
+
+    var videoCamera: GPUImageVideoCamera!
+    let customFilter = GPUImageChromaKeyFilter()
+
+    override func viewDidLoad() {
+//        view.backgroundColor = .blue
+
+        view.addSubview(backImageView)
+        NSLayoutConstraint.activate([
+            backImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            backImageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            backImageView.topAnchor.constraint(equalTo: view.topAnchor),
+            backImageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            ])
+
+        view.addSubview(iv)
+        NSLayoutConstraint.activate([
+            iv.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            iv.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            iv.topAnchor.constraint(equalTo: view.topAnchor),
+            iv.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            ])
+
+        videoCamera = GPUImageVideoCamera(sessionPreset: AVCaptureSession.Preset.photo.rawValue, cameraPosition: .back)
+        videoCamera.outputImageOrientation = .portrait;
+
+        // Add the view somewhere so it's visible
+
+//        let renderer = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: 1, height: 1))
+//        let image = renderer.image { (context) in
+//            UIColor.red.setFill()
+//            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+//        }
+//        let red = GPUImagePicture(image: image)
+//
+        videoCamera.addTarget(customFilter)
+//        red?.addTarget(customFilter)
+        customFilter.addTarget(iv)
+        customFilter.thresholdSensitivity = 0.7
+        
+
+        videoCamera.startCapture()
+    }
+}
+
 
 class ViewController: UIViewController {
 
@@ -105,6 +166,8 @@ class ViewController: UIViewController {
 class CaptureSession: NSObject, AVCapturePhotoCaptureDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
 
     var avSession = AVCaptureSession()
+
+    private let chromaFilter = ChromaKey()
 
     private var backCamera: AVCaptureDevice?
     private var frontCamera: AVCaptureDevice?
@@ -218,12 +281,14 @@ class CaptureSession: NSObject, AVCapturePhotoCaptureDelegate, AVCaptureVideoDat
         let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         let cameraImage = CIImage(cvPixelBuffer: pixelBuffer!)
 
-        let comicEffect = CIFilter(name: "CIComicEffect")!
+//        let comicEffect = CIFilter(name: "CIComicEffect")!
+//
+//        comicEffect.setValue(cameraImage, forKey: kCIInputImageKey)
 
-        comicEffect.setValue(cameraImage, forKey: kCIInputImageKey)
+        let greenScreened = chromaFilter.filterAndComposite(foregroundCIImage: cameraImage)
 
         let context = CIContext() // Prepare for create CGImage
-        let cgimg = context.createCGImage(comicEffect.outputImage!, from: comicEffect.outputImage!.extent)
+        let cgimg = context.createCGImage(greenScreened!, from: greenScreened!.extent)
 
         let filteredImage = UIImage(cgImage: cgimg!)
         onImageCaptured?(filteredImage)
