@@ -25,8 +25,43 @@ class GPUImageViewController: UIViewController {
         return v
     }()
 
+    lazy var slider: UISlider = {
+        let s = UISlider()
+        s.maximumValue = 1.0
+        s.minimumValue = 0.0
+        s.translatesAutoresizingMaskIntoConstraints = false
+        s.addTarget(self, action: #selector(slide(sender:)), for: .valueChanged)
+
+        return s
+    }()
+
+    lazy var replaceSq: GPUImagePicture = {
+        let renderer = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let image = renderer.image { (context) in
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        return GPUImagePicture(image: image)
+    }()
+
+    lazy var replaceSq2: GPUImagePicture = {
+        let renderer = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let image = renderer.image { (context) in
+            UIColor.clear.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        return GPUImagePicture(image: image)
+    }()
+
+    @objc func slide(sender: UISlider) {
+        customFilter.thresholdSensitivity = CGFloat(sender.value)
+    }
+
     var videoCamera: GPUImageVideoCamera!
-    let customFilter = GPUImageChromaKeyFilter()
+    let customFilterGreenChromaOnly = GPUImageChromaKeyFilter()
+    let customFilter = GPUImageChromaKeyBlendFilter()
+    let clearFilter = GPUImageChromaKeyBlendFilter()
+    let filterGroup = GPUImageFilterGroup()
 
     override func viewDidLoad() {
 //        view.backgroundColor = .blue
@@ -47,25 +82,79 @@ class GPUImageViewController: UIViewController {
             iv.bottomAnchor.constraint(equalTo: view.bottomAnchor)
             ])
 
+        view.addSubview(slider)
+        NSLayoutConstraint.activate([
+            slider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            slider.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            slider.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            slider.heightAnchor.constraint(equalToConstant: 30)
+            ])
+
+
         videoCamera = GPUImageVideoCamera(sessionPreset: AVCaptureSession.Preset.photo.rawValue, cameraPosition: .back)
         videoCamera.outputImageOrientation = .portrait;
 
+        let tap = UITapGestureRecognizer(target: self, action: #selector(didTap))
+//        view.addGestureRecognizer(tap)
+
         // Add the view somewhere so it's visible
 
-//        let renderer = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: 1, height: 1))
-//        let image = renderer.image { (context) in
-//            UIColor.red.setFill()
-//            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
-//        }
-//        let red = GPUImagePicture(image: image)
+
 //
+//        let r = UIColor.red.cgColor.components!.map{ Float($0) }
+//        customFilter.setColorToReplaceRed(r[0], green: r[1], blue: r[2])
+        customFilter.thresholdSensitivity = 0.3
         videoCamera.addTarget(customFilter)
 //        red?.addTarget(customFilter)
-        customFilter.addTarget(iv)
-        customFilter.thresholdSensitivity = 0.7
-        
+        replaceSq.addTarget(customFilter)
+        customFilter.addTarget(clearFilter)
+        replaceSq2.addTarget(clearFilter)
+        replaceSq.processImage()
+        replaceSq2.processImage()
+
+        clearFilter.addTarget(iv)
 
         videoCamera.startCapture()
+    }
+
+    @objc func didTap() {
+        customFilter.useNextFrameForImageCapture()
+        let img = customFilter.imageFromCurrentFramebuffer()
+        if let averageColor = img?.averageColor {
+            let v = UIView(frame: CGRect(origin: view.center,
+                                         size: CGSize(width: 100, height: 100))
+            )
+            v.backgroundColor = averageColor
+            view.addSubview(v)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: {
+                v.removeFromSuperview()
+
+                if let comps = averageColor.cgColor
+                    .components?
+                    .map({ Float($0) * 255}) {
+                    self.customFilter.setColorToReplaceRed(comps[0], green: comps[1], blue: comps[2])
+                }
+
+            })
+        }
+
+    }
+}
+
+extension UIImage {
+    var averageColor: UIColor? {
+        guard let inputImage = CIImage(image: self) else { return nil }
+        let extentVector = CIVector(x: inputImage.extent.origin.x, y: inputImage.extent.origin.y, z: inputImage.extent.size.width, w: inputImage.extent.size.height)
+
+        guard let filter = CIFilter(name: "CIAreaAverage", parameters: [kCIInputImageKey: inputImage, kCIInputExtentKey: extentVector]) else { return nil }
+        guard let outputImage = filter.outputImage else { return nil }
+
+        var bitmap = [UInt8](repeating: 0, count: 4)
+        let context = CIContext(options: [.workingColorSpace: kCFNull])
+        context.render(outputImage, toBitmap: &bitmap, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+
+        return UIColor(red: CGFloat(bitmap[0]) / 255, green: CGFloat(bitmap[1]) / 255, blue: CGFloat(bitmap[2]) / 255, alpha: CGFloat(bitmap[3]) / 255)
     }
 }
 
