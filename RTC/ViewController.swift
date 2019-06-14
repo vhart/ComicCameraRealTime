@@ -11,10 +11,12 @@ import AVFoundation
 import GPUImage
 
 class GPUImageViewController: UIViewController {
+    let city = UIImage(named: "city")
+    let raptors = UIImage(named: "raptorsstuff")
     lazy var backImageView: UIImageView = {
         let v = UIImageView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.image = UIImage(named: "city")
+        v.image = raptors
         return v
     }()
 
@@ -64,7 +66,7 @@ class GPUImageViewController: UIViewController {
     let filterGroup = GPUImageFilterGroup()
 
     override func viewDidLoad() {
-//        view.backgroundColor = .blue
+        //        view.backgroundColor = .blue
 
         view.addSubview(backImageView)
         NSLayoutConstraint.activate([
@@ -94,51 +96,125 @@ class GPUImageViewController: UIViewController {
         videoCamera = GPUImageVideoCamera(sessionPreset: AVCaptureSession.Preset.photo.rawValue, cameraPosition: .back)
         videoCamera.outputImageOrientation = .portrait;
 
-        let tap = UITapGestureRecognizer(target: self, action: #selector(didTap))
-//        view.addGestureRecognizer(tap)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(capture))
+        view.addGestureRecognizer(tap)
 
         // Add the view somewhere so it's visible
 
 
-//
-//        let r = UIColor.red.cgColor.components!.map{ Float($0) }
-//        customFilter.setColorToReplaceRed(r[0], green: r[1], blue: r[2])
-        customFilter.thresholdSensitivity = 0.3
+        //
+        //        let r = UIColor.red.cgColor.components!.map{ Float($0) }
+        //        customFilter.setColorToReplaceRed(r[0], green: r[1], blue: r[2])
+//        customFilter.thresholdSensitivity = 0.3
         videoCamera.addTarget(customFilter)
-//        red?.addTarget(customFilter)
         replaceSq.addTarget(customFilter)
+
+//        clearFilter.thresholdSensitivity = 0.3
         customFilter.addTarget(clearFilter)
         replaceSq2.addTarget(clearFilter)
+
         replaceSq.processImage()
         replaceSq2.processImage()
 
         clearFilter.addTarget(iv)
 
+        //        filterGroup.initialFilters = [customFilter]
+        //        filterGroup.terminalFilter = clearFilter
+
         videoCamera.startCapture()
     }
 
     @objc func didTap() {
+        //        customFilter.useNextFrameForImageCapture()
+        //        let img = customFilter.imageFromCurrentFramebuffer()
+        //        if let averageColor = img?.averageColor {
+        //            let v = UIView(frame: CGRect(origin: view.center,
+        //                                         size: CGSize(width: 100, height: 100))
+        //            )
+        //            v.backgroundColor = averageColor
+        //            view.addSubview(v)
+        //
+        //            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: {
+        //                v.removeFromSuperview()
+        //
+        //                if let comps = averageColor.cgColor
+        //                    .components?
+        //                    .map({ Float($0) * 255}) {
+        //                    self.customFilter.setColorToReplaceRed(comps[0], green: comps[1], blue: comps[2])
+        //                }
+        //
+        //            })
+        //        }
+
+    }
+
+    @objc private func capture() {
         customFilter.useNextFrameForImageCapture()
         let img = customFilter.imageFromCurrentFramebuffer()
-        if let averageColor = img?.averageColor {
-            let v = UIView(frame: CGRect(origin: view.center,
-                                         size: CGSize(width: 100, height: 100))
-            )
-            v.backgroundColor = averageColor
-            view.addSubview(v)
+        let scaledImg = scaledImage(city!, for: img!.size)
+        print(img)
+        print("------")
+        print(scaledImg)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: {
-                v.removeFromSuperview()
+        DispatchQueue.global().async {
 
-                if let comps = averageColor.cgColor
-                    .components?
-                    .map({ Float($0) * 255}) {
-                    self.customFilter.setColorToReplaceRed(comps[0], green: comps[1], blue: comps[2])
+            let newChroma = GPUImageChromaKeyBlendFilter()
+            let s1 = GPUImagePicture(image: img!)
+            let s2 = GPUImagePicture(image: scaledImg!)
+            s1!.addTarget(newChroma)
+            s2!.addTarget(newChroma)
+
+            newChroma.useNextFrameForImageCapture()
+            s1?.processImage()
+            s2?.processImage()
+            let blend = newChroma.imageFromCurrentFramebuffer()
+
+
+            if let d = scaledImg {
+                DispatchQueue.main.async {
+                    UIImageWriteToSavedPhotosAlbum(d, self, #selector(self.image(_:didFinishSavingWithError:contextInfo:)), nil)
                 }
-
-            })
+            } else {
+                print("FAILED TO BLEND")
+            }
         }
+    }
 
+    func scaledImage(_ base: UIImage, for size: CGSize) -> UIImage? {
+        let scale = max(size.height/base.size.height, size.width/base.size.width)
+        let scaledSize = base.size.applying(scale: scale)
+        let origin = CGPoint(x: (scaledSize.width - size.width) / -2,
+                             y: (scaledSize.height - size.height) / -2)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            base.draw(in: CGRect(origin: origin, size: size))
+        }
+        return image
+//        guard let cgimg = image.cgImage?
+//            .cropping(to: CGRect(origin: , size: size))
+//            else { return nil }
+//
+//        return UIImage(cgImage: cgimg)
+    }
+
+    @objc func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer){
+        if let error = error{
+            let ac = UIAlertController(title: "Error while saving", message: error.localizedDescription, preferredStyle: .alert)
+            ac.addAction(UIAlertAction(title: "Ok", style: .default))
+            present(ac, animated: true)
+        } else {
+            let ac = UIAlertController(title: "Success!", message: "The Image has been saved successfully", preferredStyle: .alert)
+            //            ac.addAction(UIAlertAction(title: "Ok", style: .default))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                ac.dismiss(animated: true, completion: nil)
+            }
+            present(ac, animated: true)
+        }
+    }
+}
+
+extension CGSize {
+    func applying(scale: CGFloat) -> CGSize {
+        return CGSize(width: self.width * scale, height: self.height * scale)
     }
 }
 
@@ -235,7 +311,7 @@ class ViewController: UIViewController {
             present(ac, animated: true)
         } else {
             let ac = UIAlertController(title: "Success!", message: "The Image has been saved successfully", preferredStyle: .alert)
-//            ac.addAction(UIAlertAction(title: "Ok", style: .default))
+            //            ac.addAction(UIAlertAction(title: "Ok", style: .default))
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 ac.dismiss(animated: true, completion: nil)
             }
@@ -244,7 +320,7 @@ class ViewController: UIViewController {
     }
 
     func update(withImage image: UIImage) {
-//        guard setCount < 5 else { return }
+        //        guard setCount < 5 else { return }
 
         imageView.image = image
         setCount += 1
@@ -370,9 +446,9 @@ class CaptureSession: NSObject, AVCapturePhotoCaptureDelegate, AVCaptureVideoDat
         let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         let cameraImage = CIImage(cvPixelBuffer: pixelBuffer!)
 
-//        let comicEffect = CIFilter(name: "CIComicEffect")!
-//
-//        comicEffect.setValue(cameraImage, forKey: kCIInputImageKey)
+        //        let comicEffect = CIFilter(name: "CIComicEffect")!
+        //
+        //        comicEffect.setValue(cameraImage, forKey: kCIInputImageKey)
 
         let greenScreened = chromaFilter.filterAndComposite(foregroundCIImage: cameraImage)
 
